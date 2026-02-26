@@ -10,7 +10,6 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
   <meta name="apple-mobile-web-app-title" content="Cards"/>
   <link rel="manifest" href="manifest.json"/>
-  <!-- Polices & bibliothèques -->
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap"/>
   <link rel="stylesheet" href="styles.css"/>
@@ -37,7 +36,8 @@
       <li><button class="nv active" data-pg="accueil"><span class="ni">🏠</span>Accueil</button></li>
       <li><button class="nv" data-pg="apprendre"><span class="ni">🎓</span>Apprendre</button></li>
       <li><button class="nv" data-pg="cards"><span class="ni">🃏</span>Mes Cartes</button></li>
-      <li><button class="nv" data-pg="online"><span class="ni">🌐</span>Multijoueur</button></li>
+      <!-- ★ NOUVEAU : Online ouvre l'overlay, pas une page -->
+      <li><button class="nv" id="navOnlineBtn" data-pg="online"><span class="ni">🌐</span>Multijoueur</button></li>
       <li><button class="nv" data-pg="infos"><span class="ni">⚙️</span>Paramètres</button></li>
     </ul>
     <div class="sfoot">
@@ -82,6 +82,12 @@
         <span style="font-size:22px;">⏸</span>
         <div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:14px;margin-bottom:2px;">Session en cours</div><div style="font-size:12px;color:var(--tx-m)" id="resumeInfo"></div></div>
         <button class="btn btnp bsm" onclick="resumeSession()">Reprendre →</button>
+      </div>
+
+      <!-- ★ NOUVEAU : Section Badges/Trophées -->
+      <div class="chart-wrap" id="badgesSection" style="margin-bottom:20px;">
+        <h3>🏅 Mes Trophées</h3>
+        <div id="badgeGrid" class="badge-grid"></div>
       </div>
 
       <!-- Graphique d'activité -->
@@ -146,11 +152,19 @@
             <div class="mdesc">Écoutez la réponse à voix haute et écrivez ce que vous entendez.</div>
           </div>
 
+          <!-- ★ NOUVEAU : Mode Sprint 60s -->
+          <div class="mc mode-sprint" data-mode="sprint" onclick="pickMode(this,'sprint')">
+            <div class="mbdg">Nouveau</div>
+            <div class="mico">⚡</div>
+            <div class="mname">Sprint 60s</div>
+            <div class="mdesc">60 secondes pour valider un maximum de cartes !</div>
+          </div>
+
           <div class="mc mode-exam" data-mode="exam" onclick="pickMode(this,'exam')">
             <div class="mbdg">Test</div>
             <div class="mico">📝</div>
             <div class="mname">Test</div>
-            <div class="mdesc">Évaluez votre niveau avec un score final.</div>
+            <div class="mdesc">Évaluez votre niveau avec un score final (questions mixtes).</div>
           </div>
 
         </div>
@@ -163,7 +177,7 @@
         <div class="session-opts">
           <div class="shd" style="margin-bottom:10px;">⚙️ Options</div>
 
-          <!-- Direction (toujours visible) -->
+          <!-- Direction -->
           <div class="opt-row">
             <div>
               <div style="font-weight:700;font-size:14px;">Direction</div>
@@ -175,7 +189,7 @@
             </div>
           </div>
 
-          <!-- Mélange (masqué pour l'examen) -->
+          <!-- Mélange -->
           <div class="opt-row" id="optRow_shuffle">
             <label class="tgl">
               <input type="checkbox" id="optShuffle" checked/>
@@ -207,11 +221,14 @@
             <div class="opt-row">
               <div>
                 <div style="font-weight:700;font-size:14px;">Format du test</div>
-                <div style="font-size:12px;color:var(--tx-m);">QCM ou réponse tapée au clavier</div>
+                <!-- ★ NOUVEAU : option "mixte" en plus -->
+                <div style="font-size:12px;color:var(--tx-m);">QCM, écriture libre ou questions mixtes</div>
               </div>
               <select class="fi fsel" id="examType" style="width:auto;max-width:200px;">
+                <option value="mixed">🎲 Mixte (recommandé)</option>
                 <option value="qcm">🔘 Choix multiples (QCM)</option>
                 <option value="write">✍️ Écriture libre</option>
+                <option value="truefalse">✔️ Vrai / Faux</option>
               </select>
             </div>
             <div class="opt-row">
@@ -250,12 +267,21 @@
       <div id="cardTabs" class="tabs">
         <button class="tbb active" onclick="switchCTab('decks',this)">Mes paquets</button>
         <button class="tbb" onclick="switchCTab('bulk',this)">Import rapide</button>
+        <button class="tbb" onclick="switchCTab('csv',this)">📂 CSV</button>
         <button class="tbb" onclick="switchCTab('url',this)">Depuis une URL</button>
       </div>
 
       <!-- Tab Decks -->
       <div id="ct-decks">
-        <div style="display:flex;justify-content:flex-end;margin-bottom:13px;">
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:13px;flex-wrap:wrap;">
+          <!-- ★ NOUVEAU : Barre de recherche -->
+          <div style="flex:1;min-width:180px;position:relative;">
+            <input type="search" class="fi" id="deckSearch" placeholder="🔍 Rechercher un paquet…" oninput="filterDecks(this.value)" style="padding-left:14px;"/>
+          </div>
+          <!-- ★ NOUVEAU : Filtre par tag -->
+          <select class="fi fsel" id="deckTagFilter" onchange="filterDecks(document.getElementById('deckSearch').value)" style="width:auto;min-width:130px;">
+            <option value="">📁 Tous les tags</option>
+          </select>
           <button class="btn btnp" onclick="openDeckModal()">+ Nouveau paquet</button>
         </div>
         <div id="deckMgr" style="display:flex;flex-direction:column;gap:9px;"></div>
@@ -280,6 +306,30 @@
         </div>
       </div>
 
+      <!-- ★ NOUVEAU : Tab CSV -->
+      <div id="ct-csv" style="display:none;">
+        <div class="card" style="margin-bottom:16px;">
+          <div class="shd">📂 Importer un fichier CSV</div>
+          <p class="imph">Sélectionnez un fichier <code class="ic">.csv</code> ou <code class="ic">.tsv</code>. Chaque ligne doit contenir la question et la réponse séparées par une virgule ou un point-virgule.</p>
+          <p class="imph">Exemple : <code class="ic">Bonjour,Hello</code> ou <code class="ic">Capitale de France;Paris</code></p>
+          <div class="fg">
+            <label class="fl">Ajouter dans</label>
+            <select class="fi fsel" id="csvDeck"></select>
+          </div>
+          <div class="csv-drop" id="csvDrop" onclick="document.getElementById('csvFile').click()">
+            <div class="csv-drop-ico">📂</div>
+            <div class="csv-drop-txt">Cliquez ou glissez votre fichier CSV ici</div>
+            <div class="csv-drop-sub" id="csvFileName">Formats acceptés : .csv, .tsv, .txt</div>
+          </div>
+          <input type="file" id="csvFile" accept=".csv,.tsv,.txt" style="display:none;" onchange="onCSVSelected(event)"/>
+          <div id="csvPreview" style="display:none;margin-top:12px;">
+            <div class="shd" style="margin-bottom:8px;">Aperçu <span id="csvPreviewCount" style="font-weight:500;color:var(--tx-m);"></span></div>
+            <div id="csvPreviewList" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;"></div>
+          </div>
+          <button class="btn btnp" id="csvImportBtn" onclick="csvImport()" style="margin-top:12px;display:none;">Importer ces cartes ✓</button>
+        </div>
+      </div>
+
       <!-- Tab URL -->
       <div id="ct-url" style="display:none;">
         <div class="card" style="margin-bottom:16px;">
@@ -299,64 +349,6 @@
 
     </section>
 
-    <!-- ════════ PAGE : MULTIJOUEUR ════════ -->
-    <section id="pg-online" class="page">
-      <div class="pgtitle" style="margin-bottom:4px;">Multijoueur <em>🌐</em></div>
-      <div class="pgsub" style="margin-bottom:22px;">Jouez et synchronisez avec vos amis — sans compte, sans serveur.</div>
-
-      <!-- Connexion -->
-      <div id="onCon" class="card" style="margin-bottom:16px;">
-        <div class="shd">👤 Votre surnom</div>
-        <div class="fg" style="margin-bottom:16px;">
-          <input type="text" class="fi" id="mpNick" placeholder="Entrez votre prénom ou surnom…" maxlength="24" style="font-size:16px;"/>
-        </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button class="btn btnp" style="flex:1;min-width:140px;" onclick="mpCreate()">
-            🎯 Créer une salle
-          </button>
-          <button class="btn btns" style="flex:1;min-width:140px;" onclick="mpShowJoin()">
-            🚪 Rejoindre
-          </button>
-        </div>
-        <div id="joinForm" style="display:none;margin-top:14px;">
-          <div class="fg">
-            <label class="fl">Code de la salle</label>
-            <input type="text" class="fi" id="joinCode" placeholder="Ex : CARDS-AB12-5678" style="text-transform:uppercase;letter-spacing:.1em;font-family:'Courier New',monospace;font-size:16px;" onkeydown="if(event.key==='Enter')mpJoin()"/>
-          </div>
-          <button class="btn btnp" onclick="mpJoin()">Rejoindre la salle →</button>
-        </div>
-      </div>
-
-      <!-- Salle active -->
-      <div id="onRoom" style="display:none;">
-        <div class="onst">
-          <div class="dot on" id="odot"></div>
-          <span id="ostxt">Connecté</span>
-          <button class="btn btnd bsm" style="margin-left:auto;" onclick="mpDisconnect()">Quitter</button>
-        </div>
-        <div class="card" style="margin-bottom:14px;">
-          <div class="rcode">
-            <div class="rclbl">Code de votre salle — partagez-le à vos amis !</div>
-            <div class="rcval" id="myRoomCode">—</div>
-          </div>
-          <div class="shd" style="margin-bottom:10px;">Joueurs connectés</div>
-          <div id="playerList" style="display:flex;flex-direction:column;gap:7px;"></div>
-          <button class="btn btnp" id="duelStartBtn" onclick="openDuelSetup()" style="display:none;margin-top:14px;width:100%;">⚔️ Lancer un duel !</button>
-        </div>
-      </div>
-
-      <!-- Emojis flottants -->
-      <div id="emjbar">
-        <button class="eb" onclick="sendEmoji('👏')">👏</button>
-        <button class="eb" onclick="sendEmoji('🎉')">🎉</button>
-        <button class="eb" onclick="sendEmoji('🔥')">🔥</button>
-        <button class="eb" onclick="sendEmoji('😂')">😂</button>
-        <button class="eb" onclick="sendEmoji('😎')">😎</button>
-        <button class="eb" onclick="sendEmoji('💪')">💪</button>
-      </div>
-
-    </section>
-
     <!-- ════════ PAGE : PARAMÈTRES ════════ -->
     <section id="pg-infos" class="page">
       <div class="pgtitle" style="margin-bottom:4px;">Paramètres <em>⚙️</em></div>
@@ -371,7 +363,6 @@
         <div class="ibody">
           <p style="font-size:13.5px;color:var(--tx-m);margin-bottom:16px;">Pour envoyer vos cartes sur un autre téléphone ou ordinateur, utilisez les deux boutons ci-dessous :</p>
 
-          <!-- Deux gros boutons simples -->
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
             <div class="sync-bigbtn" onclick="genSyncQR()">
               <div class="sbi">📤</div>
@@ -459,10 +450,82 @@
     <button class="bnb active" data-pg="accueil"><span class="ni">🏠</span>Accueil</button>
     <button class="bnb" data-pg="apprendre"><span class="ni">🎓</span>Apprendre</button>
     <button class="bnb" data-pg="cards"><span class="ni">🃏</span>Cartes</button>
-    <button class="bnb" data-pg="online"><span class="ni">🌐</span>En ligne</button>
+    <button class="bnb" id="navOnlineBtnM" data-pg="online"><span class="ni">🌐</span>En ligne</button>
     <button class="bnb" data-pg="infos"><span class="ni">⚙️</span>Réglages</button>
   </div>
 </nav>
+
+<!-- ★ NOUVEAU : OVERLAY MULTIJOUEUR (flottant, backdrop-filter) -->
+<div id="onlineOverlay" class="online-overlay hidden" onclick="closeOnlineOverlayOutside(event)">
+  <div class="online-panel" id="onlinePanel">
+    <div class="online-panel-hdr">
+      <div>
+        <div class="pgtitle" style="margin:0;font-size:20px;">Multijoueur <em>🌐</em></div>
+        <div class="pgsub" style="margin:0;">Jouez avec vos amis — sans compte, sans serveur.</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <!-- ★ NOUVEAU : Indicateur de statut en ligne dans le header -->
+        <div id="onlineStatusBadge" class="online-status-badge">
+          <div class="dot" id="odot"></div>
+          <span id="ostxt">Non connecté</span>
+        </div>
+        <button class="btn btng bico bsm" onclick="closeOnlineOverlay()" title="Fermer">✕</button>
+      </div>
+    </div>
+    <div class="online-panel-body">
+
+      <!-- Connexion -->
+      <div id="onCon" class="card" style="margin-bottom:16px;">
+        <div class="shd">👤 Votre surnom</div>
+        <div class="fg" style="margin-bottom:16px;">
+          <input type="text" class="fi" id="mpNick" placeholder="Entrez votre prénom ou surnom…" maxlength="24" style="font-size:16px;"/>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btnp" style="flex:1;min-width:140px;" onclick="mpCreate()">
+            🎯 Créer une salle
+          </button>
+          <button class="btn btns" style="flex:1;min-width:140px;" onclick="mpShowJoin()">
+            🚪 Rejoindre
+          </button>
+        </div>
+        <div id="joinForm" style="display:none;margin-top:14px;">
+          <div class="fg">
+            <label class="fl">Code de la salle</label>
+            <input type="text" class="fi" id="joinCode" placeholder="Ex : CARDS-AB12-5678" style="text-transform:uppercase;letter-spacing:.1em;font-family:'Courier New',monospace;font-size:16px;" onkeydown="if(event.key==='Enter')mpJoin()"/>
+          </div>
+          <button class="btn btnp" onclick="mpJoin()">Rejoindre la salle →</button>
+        </div>
+      </div>
+
+      <!-- Salle active -->
+      <div id="onRoom" style="display:none;">
+        <div class="card" style="margin-bottom:14px;">
+          <div class="rcode">
+            <div class="rclbl">Code de votre salle — partagez-le à vos amis !</div>
+            <div class="rcval" id="myRoomCode">—</div>
+          </div>
+          <div class="shd" style="margin-bottom:10px;">Joueurs connectés</div>
+          <div id="playerList" style="display:flex;flex-direction:column;gap:7px;"></div>
+          <button class="btn btnp" id="duelStartBtn" onclick="openDuelSetup()" style="display:none;margin-top:14px;width:100%;">⚔️ Lancer un duel !</button>
+        </div>
+      </div>
+
+      <!-- Zone de duel (dynamiquement injectée) -->
+      <div id="duelArea"></div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ─── Emojis flottants (dans l'overlay) ─── -->
+<div id="emjbar">
+  <button class="eb" onclick="sendEmoji('👏')">👏</button>
+  <button class="eb" onclick="sendEmoji('🎉')">🎉</button>
+  <button class="eb" onclick="sendEmoji('🔥')">🔥</button>
+  <button class="eb" onclick="sendEmoji('😂')">😂</button>
+  <button class="eb" onclick="sendEmoji('😎')">😎</button>
+  <button class="eb" onclick="sendEmoji('💪')">💪</button>
+</div>
 
 <!-- ─── MODAL ─── -->
 <div id="overlay" class="overlay hidden" onclick="closeMO(event)">

@@ -1,8 +1,11 @@
 'use strict';
 /* ============================================================
-   Cards v4 — app.js
-   Grand public · Confettis · Shake · TTS · Direction · Levenshtein
-   Révision Intelligente (SM-2) · Examen Blanc · Duel · Sync
+   Cards v4.1 — app.js
+   ★ Toutes les fonctionnalités originales +
+   ★ Online Overlay    ★ Badges/Trophées     ★ Sprint 60s
+   ★ J'avais raison    ★ Exam Mixte          ★ Cloud-Link
+   ★ Auto-join ?join=  ★ CSV Import          ★ Tags/Dossiers
+   ★ Recherche decks   ★ Heatmap difficulté  ★ 40+ emojis
 ============================================================ */
 
 /* ═══════ STORAGE ═══════ */
@@ -14,11 +17,12 @@ const LS = {
 
 let S = {
   decks:   LS.g('cards_decks', []),
-  stats:   LS.g('cards_stats', {streak:0,lastDay:'',sessions:0,total:0,learned:0,daily:{}}),
+  stats:   LS.g('cards_stats', {streak:0,lastDay:'',sessions:0,total:0,learned:0,daily:{},badges:{}}),
   session: LS.g('cards_sess', null),
   theme:   LS.g('cards_theme', 'auto')
 };
-if (!S.stats.daily) S.stats.daily = {};
+if (!S.stats.daily)  S.stats.daily  = {};
+if (!S.stats.badges) S.stats.badges = {};
 
 function save() {
   LS.s('cards_decks', S.decks);
@@ -52,13 +56,14 @@ applyTheme(S.theme);
 /* ═══════ NAVIGATION ═══════ */
 let CUR = 'accueil';
 function navigate(pg) {
+  /* ★ NOUVEAU : "online" ouvre l'overlay flottant, pas une page */
+  if(pg === 'online') { toggleOnlineOverlay(); return; }
+
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   const target = document.getElementById('pg-'+pg);
   if(target) target.classList.add('active');
   document.querySelectorAll('[data-pg]').forEach(b=>b.classList.toggle('active', b.dataset.pg===pg));
   CUR = pg;
-  const ej = document.getElementById('emjbar');
-  if(ej) ej.classList.toggle('show', pg==='online');
   if(pg==='accueil')   { renderHome(); renderActivityChart(); }
   if(pg==='apprendre') { renderLearnSetup(); }
   if(pg==='cards')     { renderDeckMgr(); refreshImports(); }
@@ -97,7 +102,6 @@ function checkAns(inp, exp, opts={}) {
   if(opts.strict) return inp.trim()===exp.trim();
   const ni=normalize(inp), ne=normalize(exp);
   if(ni===ne) return true;
-  /* Correction flexible : 1 faute tolérée si mot > 5 lettres */
   if(opts.flexible) {
     const maxErr = ne.length>8 ? 2 : ne.length>4 ? 1 : 0;
     return levenshtein(ni, ne) <= maxErr;
@@ -140,7 +144,7 @@ function shakeEl(id) {
   const el = document.getElementById(id);
   if(!el) return;
   el.classList.remove('shake');
-  void el.offsetWidth; /* force reflow */
+  void el.offsetWidth;
   el.classList.add('shake');
 }
 
@@ -154,7 +158,6 @@ function speak(text, langHint) {
   if(!window.speechSynthesis || !text) return;
   window.speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(text);
-  /* Auto-détect langue */
   const sel = document.getElementById('voiceSel');
   if(sel && sel.value) {
     const v = ttsVoices.find(x=>x.name===sel.value);
@@ -213,6 +216,52 @@ function bumpDaily(n=1) {
   S.stats.daily[k] = (S.stats.daily[k]||0)+n;
 }
 
+/* ═══════ ★ NOUVEAU : SYSTÈME DE BADGES ═══════ */
+const BADGE_DEFS = [
+  { id:'first_card',   ico:'🎯', name:'Premier Pas',    desc:'Créer votre première carte',    check:()=>S.decks.some(d=>d.cards.length>0) },
+  { id:'five_decks',   ico:'📚', name:'Polyglotte',     desc:'Créer 5 paquets',               check:()=>S.decks.length>=5 },
+  { id:'streak7',      ico:'🔥', name:'Semaine de Feu', desc:'Streak de 7 jours',             check:()=>(S.stats.streak||0)>=7 },
+  { id:'streak30',     ico:'🏆', name:'Le Marathonien', desc:'Streak de 30 jours consécutifs',check:()=>(S.stats.streak||0)>=30 },
+  { id:'100_cards',    ico:'💯', name:'Centurion',      desc:'100 cartes révisées',           check:()=>Object.values(S.stats.daily||{}).reduce((a,b)=>a+b,0)>=100 },
+  { id:'first_duel',   ico:'⚔️', name:'Le Duelliste',   desc:'Participer à un duel',          check:()=>!!(S.stats.badges?.first_duel_done) },
+  { id:'all_mastered', ico:'⭐', name:'Perfectionniste',desc:'Maîtriser toutes les cartes d\'un paquet', check:()=>S.decks.some(d=>d.cards.length>0&&d.cards.every(c=>c.correct>=3)) },
+  { id:'night_owl',    ico:'🦉', name:'Hibou de Nuit',  desc:'Réviser après minuit',          check:()=>!!(S.stats.badges?.night_owl_done) },
+];
+
+function checkBadges() {
+  let newBadges = [];
+  BADGE_DEFS.forEach(b=>{
+    if(!S.stats.badges[b.id] && b.check()) {
+      S.stats.badges[b.id] = { unlocked:true, ts:Date.now(), isNew:true };
+      newBadges.push(b);
+    }
+  });
+  if(newBadges.length) {
+    save();
+    newBadges.forEach(b=>toast(`🏅 Nouveau badge : ${b.name} ${b.ico}`, '🎉', 4000));
+  }
+  /* Marquer l'heure pour night owl */
+  const h = new Date().getHours();
+  if(h===0||h===1||h===2) { S.stats.badges.night_owl_done=true; }
+}
+
+function renderBadges() {
+  const grid = document.getElementById('badgeGrid'); if(!grid) return;
+  grid.innerHTML = BADGE_DEFS.map(b=>{
+    const bd = S.stats.badges[b.id];
+    const unlocked = bd?.unlocked;
+    const isNew = bd?.isNew;
+    return `<div class="badge-card ${unlocked?'unlocked':'locked'}" title="${unlocked?'Débloqué !':'Non débloqué'}">
+      ${isNew?'<span class="badge-new">NOUVEAU</span>':''}
+      <div class="badge-ico">${b.ico}</div>
+      <div class="badge-name">${b.name}</div>
+      <div class="badge-desc">${b.desc}</div>
+    </div>`;
+  }).join('');
+  /* Effacer isNew après affichage */
+  BADGE_DEFS.forEach(b=>{ if(S.stats.badges[b.id]?.isNew) delete S.stats.badges[b.id].isNew; });
+}
+
 /* ═══════ ACCUEIL ═══════ */
 let activityChartInst = null;
 function renderHome() {
@@ -238,7 +287,7 @@ function renderHome() {
         return `<div class="drow" onclick="navigate('apprendre')">
           <div class="dico" style="background:${d.color||'var(--vip)'}">${d.icon}</div>
           <div class="dnfo"><div class="dname">${esc(d.name)}</div>
-          <div class="dmeta">${tot} carte${tot!==1?'s':''} · ${pct}% maîtrisé</div></div>
+          <div class="dmeta">${tot} carte${tot!==1?'s':''} · ${pct}% maîtrisé${d.tag?` · <span class="deck-tag">📁 ${esc(d.tag)}</span>`:''}</div></div>
           <div style="width:70px;flex-shrink:0"><div class="pb"><div class="pf" style="width:${pct}%"></div></div></div>
         </div>`;
       }).join('');
@@ -248,11 +297,15 @@ function renderHome() {
   const ra=el('resumeArea');
   if(ra) {
     if(S.session&&S.session.queue&&S.session.queue.length>0) {
-      ra.style.display='block';
+      ra.style.display='flex';
       const dk=S.decks.find(d=>d.id===S.session.deckId);
       if(el('resumeInfo')) el('resumeInfo').textContent=`${dk?dk.name:'Paquet'} · ${modeLabel(S.session.mode)} · ${S.session.queue.length} carte(s) restante(s)`;
     } else { if(S.session){S.session=null;save();} ra.style.display='none'; }
   }
+
+  /* ★ NOUVEAU : Badges */
+  checkBadges();
+  renderBadges();
 }
 
 function renderActivityChart() {
@@ -282,33 +335,97 @@ function renderActivityChart() {
 }
 
 function modeLabel(m) {
-  return {flashcard:'Cartes',write:'Écriture',qcm:'Quiz',match:'Association',dictee:'Dictée',srs:'Révision Intelligente',exam:'Test',duel:'Duel'}[m]||m;
+  return {flashcard:'Cartes',write:'Écriture',qcm:'Quiz',match:'Association',dictee:'Dictée',srs:'Révision Intelligente',exam:'Test',duel:'Duel',sprint:'Sprint 60s'}[m]||m;
 }
 
 /* ═══════ GESTION DES PAQUETS ═══════ */
-const EMOJIS = ['📚','🔤','🌍','🎨','🔬','🎵','💡','🏆','🌿','⚗️','🖥️','📐','🗺️','🧮','🎭','⚽','🍎','🏛️','✈️','🌊'];
+
+/* ★ NOUVEAU : 40+ emojis variés */
+const EMOJIS = [
+  '📚','🔤','🌍','🎨','🔬','🎵','💡','🏆',
+  '🌿','⚗️','🖥️','📐','🗺️','🧮','🎭','⚽',
+  '🍎','🏛️','✈️','🌊','🧬','🎯','🎲','🔭',
+  '🦁','🌺','🍕','⚡','🎸','🏄','🌙','🦋',
+  '🔮','🧩','🎪','🦚','🍭','🏔️','🎤','🌈',
+  '🤖','💻','🧠','🔑','🎃','🌻','🐬','🚀'
+];
+
+/* ★ NOUVEAU : Tags prédéfinis */
+const TAGS = ['Langues','Sciences','Histoire','Maths','Géographie','Informatique','Arts','Médecine','Droit','Autre'];
 const BGCOLS = ['#EDE9F9','#FDE8EF','#E5F9EF','#FEF0E6','#EAF3FD','#FFF3E0','#FAEAFF','#EAF9F3'];
 
 function openDeckModal(id=null) {
   const dk = id ? S.decks.find(d=>d.id===id) : null;
-  openModal(`<div class="mhd"><div class="mtitle">${dk?'Modifier le paquet':'Nouveau paquet'}</div><button class="btn btng bico bsm" onclick="closeModal()">✕</button></div>
-  <div class="fg"><label class="fl">Nom du paquet</label><input id="dkN" class="fi" value="${dk?esc(dk.name):''}" placeholder="Ex : Vocabulaire anglais, Capitales…" maxlength="50"/></div>
-  <div class="fg"><label class="fl">Icône</label><div style="display:flex;gap:5px;flex-wrap:wrap;">${EMOJIS.map(e=>`<button onclick="pckEmo(this,'${e}')" data-emo="${e}" class="btn btng" style="font-size:22px;padding:6px;border-radius:9px;border:2px solid ${dk&&dk.icon===e?'var(--vi)':'transparent'}">${e}</button>`).join('')}</div></div>
-  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;"><button class="btn btng" onclick="closeModal()">Annuler</button><button class="btn btnp" onclick="saveDeck('${id||''}')">Enregistrer</button></div>`);
-  if(!dk && document.querySelector('[data-emo]')) document.querySelector('[data-emo]').style.borderColor='var(--vi)';
+  const selEmoji = dk ? dk.icon : EMOJIS[0];
+  const selTag   = dk ? (dk.tag||'') : '';
+
+  /* Grille emojis */
+  const emojiGrid = EMOJIS.map(e=>`<button onclick="pckEmo(this,'${e}')" data-emo="${e}" class="btn btng" style="font-size:22px;padding:6px;border-radius:9px;border:2px solid ${e===selEmoji?'var(--vi)':'transparent'}">${e}</button>`).join('');
+
+  /* Tag picker */
+  const tagPicker = TAGS.map(t=>`<button class="tag-btn${selTag===t?' active':''}" onclick="pckTag(this,'${t}')" data-tag="${t}">📁 ${t}</button>`).join('');
+
+  openModal(`<div class="mhd">
+    <div class="mtitle">${dk?'Modifier le paquet':'Nouveau paquet'}</div>
+    <button class="btn btng bico bsm" onclick="closeModal()">✕</button>
+  </div>
+  <div class="fg">
+    <label class="fl">Nom du paquet</label>
+    <input id="dkN" class="fi" value="${dk?esc(dk.name):''}" placeholder="Ex : Vocabulaire anglais, Capitales…" maxlength="50"/>
+  </div>
+  <div class="fg">
+    <label class="fl">Icône — sélectionnez ou collez le vôtre</label>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">${emojiGrid}</div>
+    <!-- ★ NOUVEAU : Champ emoji personnalisé -->
+    <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+      <input type="text" id="customEmoji" class="emoji-custom-input fi" maxlength="2" placeholder="✏️" value="" title="Collez votre propre emoji ici" oninput="pckCustomEmoji(this)"/>
+      <span style="font-size:12px;color:var(--tx-m);">← Ou collez votre propre emoji</span>
+    </div>
+  </div>
+  <div class="fg">
+    <label class="fl">Tag / Dossier</label>
+    <div class="tag-picker">${tagPicker}
+      <button class="tag-btn${selTag===''?' active':''}" onclick="pckTag(this,'')" data-tag="">✕ Aucun</button>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+    <button class="btn btng" onclick="closeModal()">Annuler</button>
+    <button class="btn btnp" onclick="saveDeck('${id||''}')">Enregistrer</button>
+  </div>`);
 }
 function pckEmo(btn) {
   document.querySelectorAll('[data-emo]').forEach(b=>b.style.borderColor='transparent');
   btn.style.borderColor='var(--vi)';
+  /* Vider le champ custom */
+  const ci = document.getElementById('customEmoji');
+  if(ci) ci.value='';
+}
+/* ★ NOUVEAU : emoji custom */
+function pckCustomEmoji(input) {
+  if(!input.value.trim()) return;
+  /* Désélectionner les boutons standards */
+  document.querySelectorAll('[data-emo]').forEach(b=>b.style.borderColor='transparent');
+}
+function pckTag(btn, tag) {
+  document.querySelectorAll('[data-tag]').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
 }
 function saveDeck(id) {
   const name=document.getElementById('dkN').value.trim(); if(!name){toast('Donnez un nom au paquet','⚠️');return;}
+  /* Emoji : custom si rempli, sinon le bouton sélectionné */
+  const customEmojiEl = document.getElementById('customEmoji');
+  const customEmoji = customEmojiEl?.value?.trim();
   const pk=document.querySelector('[data-emo][style*="var(--vi)"]');
-  const icon=pk?pk.dataset.emo:EMOJIS[0];
-  if(id){ const dk=S.decks.find(d=>d.id===id); if(dk){dk.name=name;dk.icon=icon;} }
-  else S.decks.push({id:'d'+Date.now(),name,icon,color:BGCOLS[S.decks.length%BGCOLS.length],cards:[],created:Date.now()});
+  const icon = customEmoji ? customEmoji : (pk?pk.dataset.emo:EMOJIS[0]);
+  /* Tag */
+  const tagBtn = document.querySelector('[data-tag].active');
+  const tag = tagBtn ? tagBtn.dataset.tag : '';
+
+  if(id){ const dk=S.decks.find(d=>d.id===id); if(dk){dk.name=name;dk.icon=icon;dk.tag=tag;} }
+  else S.decks.push({id:'d'+Date.now(),name,icon,tag,color:BGCOLS[S.decks.length%BGCOLS.length],cards:[],created:Date.now()});
   save(); closeModal(); renderHome(); renderDeckMgr(); renderLearnSetup(); refreshImports();
   toast(id?'Paquet modifié !':'Paquet créé 🎉');
+  checkBadges();
 }
 function deleteDeck(id) {
   if(!confirm('Supprimer ce paquet et toutes ses cartes ?')) return;
@@ -316,14 +433,49 @@ function deleteDeck(id) {
   save(); renderHome(); renderDeckMgr(); renderLearnSetup(); refreshImports();
   toast('Paquet supprimé','🗑️');
 }
+
+/* ★ NOUVEAU : Heatmap difficulté dans la liste de cartes */
+function diffDot(card) {
+  /* Statut basé sur SM-2 et correct count */
+  if(card.srs && card.srs.interval >= 14) return '<span class="diff-dot mastered" title="Maîtrisée"></span>';
+  if(card.correct >= 3)                    return '<span class="diff-dot mastered" title="Maîtrisée"></span>';
+  if(card.srs && card.srs.n > 0)           return '<span class="diff-dot learning" title="En cours"></span>';
+  if(card.correct > 0)                     return '<span class="diff-dot learning" title="En cours"></span>';
+  /* Cartes souvent ratées */
+  if(card.seen > 0 && card.correct === 0)  return '<span class="diff-dot struggling" title="Souvent ratée"></span>';
+  return '<span class="diff-dot new" title="Nouvelle"></span>';
+}
+
 function openCardsModal(did) {
   const dk=S.decks.find(d=>d.id===did); if(!dk) return;
-  openModal(`<div class="mhd"><div class="mtitle">${dk.icon} ${esc(dk.name)} <span style="font-size:12px;color:var(--tx-m);font-weight:500">${dk.cards.length} carte${dk.cards.length!==1?'s':''}</span></div><button class="btn btng bico bsm" onclick="closeModal()">✕</button></div>
-  <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn btnp bsm" onclick="openAddCard('${did}')">+ Ajouter une carte</button></div>
+  openModal(`<div class="mhd">
+    <div class="mtitle">${dk.icon} ${esc(dk.name)} <span style="font-size:12px;color:var(--tx-m);font-weight:500">${dk.cards.length} carte${dk.cards.length!==1?'s':''}</span></div>
+    <button class="btn btng bico bsm" onclick="closeModal()">✕</button>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+    <div style="display:flex;gap:12px;font-size:11.5px;color:var(--tx-f);">
+      <span><span class="diff-dot mastered" style="display:inline-block;margin-right:4px;"></span>Maîtrisée</span>
+      <span><span class="diff-dot learning" style="display:inline-block;margin-right:4px;"></span>En cours</span>
+      <span><span class="diff-dot struggling" style="display:inline-block;margin-right:4px;"></span>Difficile</span>
+    </div>
+    <button class="btn btnp bsm" onclick="openAddCard('${did}')">+ Ajouter une carte</button>
+  </div>
   <div style="display:flex;flex-direction:column;gap:8px;max-height:350px;overflow-y:auto;">${dk.cards.length===0
     ? '<div class="empty"><div class="ei">🃏</div><p>Ce paquet est vide.<br>Ajoutez votre première carte !</p></div>'
-    : dk.cards.map((c,i)=>`<div class="ci"><div class="ciq" style="flex:1">${esc(c.q)}</div><div style="color:var(--tx-f);padding:0 6px;flex-shrink:0;">→</div><div class="cia" style="flex:1">${esc(c.a)}</div><span class="cibdg ${c.correct>=3?'L':'N'}">${c.correct>=3?'✓ Sus':'⊙ Nouveau'}</span><button class="btn btng bsm bico" onclick="openAddCard('${did}',${i})">✏️</button><button class="btn btnd bsm bico" onclick="delCard('${did}',${i})">🗑️</button></div>`).join('')
-  }</div>`);
+    : dk.cards.map((c,i)=>`<div class="ci">
+        ${diffDot(c)}
+        <div class="ciq" style="flex:1">${esc(c.q)}</div>
+        <div style="color:var(--tx-f);padding:0 6px;flex-shrink:0;">→</div>
+        <div class="cia" style="flex:1">${esc(c.a)}</div>
+        <span class="cibdg ${c.correct>=3?'L':'N'}">${c.correct>=3?'✓ Sus':'⊙ Nouveau'}</span>
+        <button class="btn btng bsm bico" onclick="openAddCard('${did}',${i})">✏️</button>
+        <button class="btn btnd bsm bico" onclick="delCard('${did}',${i})">🗑️</button>
+      </div>`).join('')
+  }</div>
+  <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--bd);display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+    <!-- ★ NOUVEAU : Bouton partage Cloud-Link -->
+    <button class="btn btns bsm" onclick="generateShareLink('${did}')">🔗 Lien de partage</button>
+  </div>`);
 }
 function openAddCard(did, eidx=null) {
   const dk=S.decks.find(d=>d.id===did); if(!dk) return;
@@ -341,32 +493,91 @@ function saveCard(did, idx) {
   if(idx!=null&&idx!=='null') dk.cards[idx]={...dk.cards[idx],q,a,lastModified:now};
   else dk.cards.push({q,a,correct:0,seen:0,lastModified:now});
   save(); openCardsModal(did); toast(idx!=null&&idx!=='null'?'Carte modifiée !':'Carte ajoutée ✓');
+  checkBadges();
 }
 function delCard(did,idx) {
   const dk=S.decks.find(d=>d.id===did); if(!dk) return;
   dk.cards.splice(idx,1); save(); openCardsModal(did); toast('Carte supprimée','🗑️');
 }
+
+/* ★ NOUVEAU : Recherche et filtres de paquets */
+let deckSearchQuery = '';
+let deckTagQueryFilter = '';
+
+function filterDecks(query) {
+  deckSearchQuery = (query||'').toLowerCase().trim();
+  const tagSel = document.getElementById('deckTagFilter');
+  deckTagQueryFilter = tagSel ? tagSel.value : '';
+  renderDeckMgr();
+}
+
 function renderDeckMgr() {
   const el=document.getElementById('deckMgr'); if(!el) return;
-  if(!S.decks.length){ el.innerHTML=`<div class="empty"><div class="ei">📦</div><p>Aucun paquet pour l'instant.<br>Créez votre premier paquet !</p></div>`; return; }
-  el.innerHTML=S.decks.map(d=>`<div class="cdsm" style="display:flex;align-items:center;gap:12px;">
-    <div class="dico" style="background:${d.color||'var(--vip)'};border-radius:12px;width:40px;height:40px;flex-shrink:0;">${d.icon}</div>
-    <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${esc(d.name)}</div>
-    <div style="font-size:12px;color:var(--tx-m)">${d.cards.length} carte${d.cards.length!==1?'s':''}</div></div>
-    <button class="btn btns bsm" onclick="openCardsModal('${d.id}')">Voir / Éditer</button>
-    <button class="btn btng bsm bico" onclick="openDeckModal('${d.id}')">⚙️</button>
-    <button class="btn btnd bsm bico" onclick="deleteDeck('${d.id}')">🗑️</button>
-  </div>`).join('');
+  if(!S.decks.length){ el.innerHTML=`<div class="empty"><div class="ei">📦</div><p>Aucun paquet pour l'instant.<br>Créez votre premier paquet !</p></div>`; updateTagFilter(); return; }
+
+  /* Filtrage */
+  let filtered = S.decks.filter(d=>{
+    const matchSearch = !deckSearchQuery || d.name.toLowerCase().includes(deckSearchQuery);
+    const matchTag    = !deckTagQueryFilter || d.tag===deckTagQueryFilter;
+    return matchSearch && matchTag;
+  });
+
+  if(!filtered.length){ el.innerHTML=`<div class="empty"><div class="ei">🔍</div><p>Aucun paquet ne correspond à votre recherche.</p></div>`; updateTagFilter(); return; }
+
+  /* ★ NOUVEAU : Regrouper par tag */
+  const byTag = {};
+  filtered.forEach(d=>{
+    const t = d.tag || '';
+    if(!byTag[t]) byTag[t]=[];
+    byTag[t].push(d);
+  });
+
+  let html='';
+  const tags = Object.keys(byTag).sort((a,b)=>{if(a===''&&b!=='')return 1;if(a!==''&&b==='')return -1;return a.localeCompare(b);});
+  tags.forEach(tag=>{
+    if(tag && tags.length>1) html+=`<div class="tag-group-hdr"><span>📁 ${esc(tag)}</span></div>`;
+    byTag[tag].forEach(d=>{
+      html+=`<div class="cdsm" style="display:flex;align-items:center;gap:12px;">
+        <div class="dico" style="background:${d.color||'var(--vip)'};border-radius:12px;width:40px;height:40px;flex-shrink:0;">${d.icon}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px">${deckSearchQuery?highlightText(d.name,deckSearchQuery):esc(d.name)}</div>
+          <div style="font-size:12px;color:var(--tx-m)">${d.cards.length} carte${d.cards.length!==1?'s':''}${d.tag?` · <span class="deck-tag">📁 ${esc(d.tag)}</span>`:''}</div>
+        </div>
+        <div class="import-btn-wrap">
+          <button class="btn btns bsm" onclick="openCardsModal('${d.id}')">Voir / Éditer</button>
+          <button class="btn btng bsm bico" onclick="openDeckModal('${d.id}')">⚙️</button>
+          <button class="btn btnd bsm bico" onclick="deleteDeck('${d.id}')">🗑️</button>
+        </div>
+      </div>`;
+    });
+  });
+  el.innerHTML=html;
+  updateTagFilter();
 }
+
+function highlightText(text, query) {
+  if(!query) return esc(text);
+  const re = new RegExp('('+query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')', 'gi');
+  return esc(text).replace(re, '<mark class="deck-search-hl">$1</mark>');
+}
+
+function updateTagFilter() {
+  const sel = document.getElementById('deckTagFilter'); if(!sel) return;
+  const usedTags = [...new Set(S.decks.map(d=>d.tag).filter(Boolean))];
+  sel.innerHTML = '<option value="">📁 Tous les tags</option>' +
+    usedTags.map(t=>`<option value="${esc(t)}"${deckTagQueryFilter===t?' selected':''}>📁 ${esc(t)}</option>`).join('');
+}
+
 function switchCTab(tab,btn) {
-  ['decks','bulk','url'].forEach(t=>{ const el=document.getElementById('ct-'+t); if(el) el.style.display=t===tab?'block':'none'; });
+  ['decks','bulk','csv','url'].forEach(t=>{ const el=document.getElementById('ct-'+t); if(el) el.style.display=t===tab?'block':'none'; });
   document.querySelectorAll('#cardTabs .tbb').forEach(b=>b.classList.toggle('active',b===btn));
 }
 function refreshImports() {
   const opts=S.decks.length
     ? S.decks.map(d=>`<option value="${d.id}">${d.icon} ${esc(d.name)}</option>`).join('')
     : '<option value="">— Créez d\'abord un paquet —</option>';
-  ['bulkDeck','urlDeck'].forEach(id=>{ const el=document.getElementById(id); if(el) el.innerHTML=opts; });
+  ['bulkDeck','urlDeck','csvDeck'].forEach(id=>{ const el=document.getElementById(id); if(el) el.innerHTML=opts; });
+  updateTagFilter();
 }
 
 /* ═══════ IMPORT RAPIDE ═══════ */
@@ -387,7 +598,17 @@ document.addEventListener('DOMContentLoaded',()=>{
     const bc=document.getElementById('bulkCnt');
     if(bc) bc.textContent=c.length?`→ ${c.length} carte${c.length!==1?'s':''} détectée${c.length!==1?'s':''}`:ta.value.trim()?'Aucune carte reconnue':'';
   });
+
+  /* ★ NOUVEAU : CSV drag & drop */
+  const drop = document.getElementById('csvDrop');
+  if(drop) {
+    drop.addEventListener('dragover',e=>{ e.preventDefault(); drop.classList.add('dragover'); });
+    drop.addEventListener('dragleave',()=>drop.classList.remove('dragover'));
+    drop.addEventListener('drop',e=>{ e.preventDefault(); drop.classList.remove('dragover');
+      const f=e.dataTransfer?.files?.[0]; if(f) parseCSVFile(f); });
+  }
 });
+
 function bulkImport() {
   const did=document.getElementById('bulkDeck').value, txt=document.getElementById('bulkTxt').value;
   if(!did){toast('Créez d\'abord un paquet','⚠️');return;}
@@ -398,6 +619,7 @@ function bulkImport() {
   save(); renderHome(); renderDeckMgr(); renderLearnSetup();
   document.getElementById('bulkTxt').value=''; document.getElementById('bulkCnt').textContent='';
   toast(`${added} carte${added!==1?'s':''} ajoutée${added!==1?'s':''} 🎉`);
+  checkBadges();
 }
 function urlImport() {
   const url=document.getElementById('urlInp').value.trim(), did=document.getElementById('urlDeck').value;
@@ -411,21 +633,85 @@ function urlImport() {
     save(); renderHome(); renderDeckMgr(); renderLearnSetup();
     document.getElementById('urlInp').value='';
     toast(`${added} carte${added!==1?'s':''} importée${added!==1?'s':''} 🎉`);
+    checkBadges();
   }).catch(()=>toast('Impossible de charger cette adresse','❌'));
 }
 
+/* ★ NOUVEAU : Import CSV via FileReader */
+let csvParsedCards = [];
+function onCSVSelected(event) {
+  const f = event.target.files?.[0]; if(!f) return;
+  parseCSVFile(f);
+}
+function parseCSVFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const txt = e.target.result;
+    /* Détecter le séparateur (virgule, point-virgule ou tabulation) */
+    const firstLine = txt.split('\n')[0]||'';
+    let sep = ',';
+    if(firstLine.includes(';'))  sep=';';
+    if(firstLine.includes('\t')) sep='\t';
+    csvParsedCards = txt.split('\n').map(l=>l.trim()).filter(Boolean)
+      .map(l=>{ const p=l.split(sep); if(p.length<2) return null; return {q:p[0].trim().replace(/^"|"$/g,''),a:p.slice(1).join(sep).trim().replace(/^"|"$/g,''),correct:0,seen:0,lastModified:Date.now()}; })
+      .filter(Boolean);
+    document.getElementById('csvFileName').textContent = file.name;
+    const preview = document.getElementById('csvPreview');
+    const count   = document.getElementById('csvPreviewCount');
+    const list    = document.getElementById('csvPreviewList');
+    const importBtn = document.getElementById('csvImportBtn');
+    if(!csvParsedCards.length){ toast('Aucune carte détectée dans ce fichier','⚠️'); return; }
+    count.textContent = `— ${csvParsedCards.length} carte${csvParsedCards.length!==1?'s':''} détectée${csvParsedCards.length!==1?'s':''}`;
+    list.innerHTML = csvParsedCards.slice(0,5).map(c=>`<div class="ci"><div class="ciq">${esc(c.q)}</div><div style="color:var(--tx-f);padding:0 6px">→</div><div class="cia">${esc(c.a)}</div></div>`).join('') + (csvParsedCards.length>5?`<div style="text-align:center;font-size:12px;color:var(--tx-f);padding:8px">... et ${csvParsedCards.length-5} autres</div>`:'');
+    preview.style.display='block';
+    importBtn.style.display='inline-flex';
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+function csvImport() {
+  const did = document.getElementById('csvDeck').value;
+  if(!did){toast('Choisissez un paquet','⚠️');return;}
+  if(!csvParsedCards.length){toast('Aucune carte à importer','⚠️');return;}
+  const dk = S.decks.find(d=>d.id===did); let added=0;
+  csvParsedCards.forEach(c=>{if(!dk.cards.find(x=>x.q===c.q)){dk.cards.push(c);added++;}});
+  save(); renderHome(); renderDeckMgr(); renderLearnSetup();
+  csvParsedCards=[];
+  document.getElementById('csvPreview').style.display='none';
+  document.getElementById('csvImportBtn').style.display='none';
+  document.getElementById('csvFileName').textContent='Formats acceptés : .csv, .tsv, .txt';
+  document.getElementById('csvFile').value='';
+  toast(`${added} carte${added!==1?'s':''} importée${added!==1?'s':''} depuis le CSV 🎉`);
+  checkBadges();
+}
+
+/* ★ NOUVEAU : CLOUD-LINK — Partage asynchrone via URL Base64 */
+function generateShareLink(deckId) {
+  const dk = S.decks.find(d=>d.id===deckId); if(!dk) return;
+  /* Encodage : on sérialise le paquet (nom, icon, cards) puis Base64 */
+  const payload = JSON.stringify({ name:dk.name, icon:dk.icon, tag:dk.tag||'', cards:dk.cards.map(c=>({q:c.q,a:c.a})) });
+  const b64 = btoa(unescape(encodeURIComponent(payload)));
+  const url = location.href.split('?')[0] + '?import=' + b64;
+  openModal(`<div class="mhd"><div class="mtitle">🔗 Partager "${esc(dk.name)}"</div><button class="btn btng bico bsm" onclick="closeModal()">✕</button></div>
+  <p style="font-size:13px;color:var(--tx-m);margin-bottom:12px;">Envoyez ce lien à vos amis. En l'ouvrant, ils pourront importer votre paquet directement !</p>
+  <div class="share-link-wrap" id="shareUrl">${esc(url)}</div>
+  <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">
+    <button class="btn btns" onclick="navigator.clipboard?.writeText(document.getElementById('shareUrl').textContent);toast('Lien copié !','📋')">📋 Copier</button>
+    <button class="btn btns" onclick="if(navigator.share)navigator.share({title:'Paquet Cards',url:'${esc(url)}'});else navigator.clipboard?.writeText('${esc(url)}')">📤 Partager</button>
+    <button class="btn btnp" onclick="closeModal()">Fermer</button>
+  </div>`);
+}
+
 /* ═══════ LEARN SETUP ═══════ */
-let chosenMode='flashcard', chosenDeck=null, sessDirection='qa'; /* qa | aq */
+let chosenMode='srs', chosenDeck=null, sessDirection='qa';
 
 function pickMode(el, mode) {
   document.querySelectorAll('.mc').forEach(c=>c.classList.remove('sel'));
   el.classList.add('sel'); chosenMode=mode;
   document.getElementById('startBtn').disabled=!chosenDeck;
-  /* Afficher / masquer options spécifiques */
   const examOpts=document.getElementById('examOptions');
   if(examOpts) examOpts.style.display=mode==='exam'?'block':'none';
   const shuffRow=document.getElementById('optRow_shuffle');
-  if(shuffRow) shuffRow.style.display=mode==='exam'?'none':'flex';
+  if(shuffRow) shuffRow.style.display=(mode==='exam'||mode==='sprint')?'none':'flex';
   renderLearnSetup();
 }
 function pickDeck(id) {
@@ -459,8 +745,9 @@ function startSession() {
   if(!chosenDeck) return;
   const dk=S.decks.find(d=>d.id===chosenDeck);
   if(!dk||dk.cards.length<2){toast('Il faut au moins 2 cartes dans le paquet','⚠️');return;}
-  if(chosenMode==='srs')  { startSRS(dk);  return; }
-  if(chosenMode==='exam') { startExam(dk); return; }
+  if(chosenMode==='srs')    { startSRS(dk);    return; }
+  if(chosenMode==='exam')   { startExam(dk);   return; }
+  if(chosenMode==='sprint') { startSprint(dk); return; }
 
   const shuffle = document.getElementById('optShuffle')?.checked ?? true;
   const strict  = document.getElementById('optStrict')?.checked  ?? false;
@@ -488,7 +775,7 @@ function resumeSession() {
 function exitSession(pause=true) {
   if(pause){S.session=sess;save();toast('Session sauvegardée 💾');}
   else{S.session=null;save();}
-  clearInterval(matchTimer); clearInterval(examTimer);
+  clearInterval(matchTimer); clearInterval(examTimer); clearInterval(sprintTimer);
   document.getElementById('learnSetup').style.display='block';
   document.getElementById('learnArea').style.display='none';
 }
@@ -508,7 +795,7 @@ function markCard(ok, event=null) {
     c.consec=0; sess.wrong++; sess.queue.push(c);
   }
   S.session=sess; save();
-  if(!sess.queue.length) showComplete(); else showCard();
+  if(!sess.queue.length) { showComplete(); checkBadges(); } else showCard();
 }
 function skipCard() {
   const c=sess.queue.shift(); sess.queue.push(c);
@@ -570,11 +857,7 @@ function doFlash(area,hdr,card) {
         </div>
       </div>
     </div>
-    <div class="kbd-hint">
-      <span class="kbd">Espace</span> Retourner &nbsp;
-      <span class="kbd">←</span> Pas encore &nbsp;
-      <span class="kbd">→</span> Je savais !
-    </div>
+    <div class="kbd-hint"><span class="kbd">Espace</span> Retourner &nbsp;<span class="kbd">←</span> Pas encore &nbsp;<span class="kbd">→</span> Je savais !</div>
     <div class="fcact" id="fcActs" style="display:none;">
       <button class="btn btnd" id="btnWrong" onclick="markCard(false)">✗ Pas encore</button>
       <button class="btn btns" onclick="skipCard()">↷ Passer</button>
@@ -613,20 +896,42 @@ function submitWrite(ev) {
   const fb=document.getElementById('wFB');
   fb.className='afb '+(ok?'ok animOk':'bad');
   fb.innerHTML=ok?`✓ Correct ! <strong>${esc(card.a)}</strong>`:
-    checkAns(inp.value,card.a,{flexible:true})&&!ok?
-    `🔡 Presque ! La bonne orthographe : <strong>${esc(card.a)}</strong>`:
     `✗ La bonne réponse : <strong>${esc(card.a)}</strong>`;
   fb.style.display='block'; inp.disabled=true;
   const btn=document.querySelector('.wa .btnp'); if(btn) btn.disabled=true;
+  /* ★ NOUVEAU : Bouton "J'avais raison" */
+  if(!ok) {
+    fb.insertAdjacentHTML('afterend', `<div style="text-align:center;"><button class="btn-iadroit" onclick="iadroit('write')">💡 En fait, j'avais raison</button></div>`);
+  }
   if(ok) celebrateCorrect(ev||null);
   else shakeEl('wInp');
-  setTimeout(()=>markCard(ok), ok?750:1700);
+  if(ok) setTimeout(()=>markCard(true), 750);
+  else _setPendingWrong(()=>markCard(false), 1700);
+}
+
+/* ★ NOUVEAU : Logique "J'avais raison" — annule le setTimeout en cours */
+let _pendingWrongTimeout = null; /* référence au timeout "markCard(false)" */
+
+function _setPendingWrong(fn, delay) {
+  if(_pendingWrongTimeout) clearTimeout(_pendingWrongTimeout);
+  _pendingWrongTimeout = setTimeout(()=>{ _pendingWrongTimeout=null; fn(); }, delay);
+}
+
+function iadroit(mode) {
+  /* Annuler le timeout de "markCard(false)" s'il est encore actif */
+  if(_pendingWrongTimeout) {
+    clearTimeout(_pendingWrongTimeout);
+    _pendingWrongTimeout = null;
+    /* Maintenant marquer comme correct */
+    markCard(true, null);
+    celebrateCorrect(null);
+  }
 }
 
 /* ═══════ MODE QUIZ (QCM) ═══════ */
 function doQCM(area,hdr,card) {
   const dk=S.decks.find(d=>d.id===sess.deckId);
-  const others=shuf(dk.cards.filter(c=>normalize(c.a)!==normalize(card.a)).map(c=>sess.direction==='aq'?c.q:c.a)).slice(0,3);
+  const others=shuf(dk.cards.filter(c=>normalize(c.a)!==normalize(card.a)).map(c=>sessDirection==='aq'?c.q:c.a)).slice(0,3);
   while(others.length<3) others.push('–');
   const choices=shuf([card.a,...others]);
   const LETS=['A','B','C','D'];
@@ -737,8 +1042,97 @@ function submitDictee(ev) {
   fb.className='afb '+(ok?'ok':'bad');
   fb.innerHTML=ok?`✓ Correct ! "${esc(card.a)}"`:`✗ La bonne réponse : <strong>${esc(card.a)}</strong>`;
   fb.style.display='block'; inp.disabled=true;
+  /* ★ NOUVEAU : "J'avais raison" pour dictée */
+  if(!ok) {
+    fb.insertAdjacentHTML('afterend', `<div style="text-align:center;"><button class="btn-iadroit" onclick="iadroit('dictee')">💡 En fait, j'avais raison</button></div>`);
+  }
   if(ok) celebrateCorrect(ev||null); else shakeEl('dtInp');
-  setTimeout(()=>markCard(ok), ok?750:1700);
+  if(ok) setTimeout(()=>markCard(true), 750);
+  else _setPendingWrong(()=>markCard(false), 1700);
+}
+
+/* ═══════ ★ NOUVEAU : MODE SPRINT 60 SECONDES ═══════ */
+let sprintTimer=null, sprintSess={};
+function startSprint(dk) {
+  const cards=shuf([...dk.cards]).map((c,i)=>({...c,origIdx:i}));
+  sprintSess={deckId:dk.id,cards,idx:0,correct:0,wrong:0,t0:Date.now(),active:true};
+  sess.mode='sprint';
+  bumpStreak(); save();
+  document.getElementById('learnSetup').style.display='none';
+  document.getElementById('learnArea').style.display='block';
+  showSprintCard();
+  /* Démarrer le compte à rebours */
+  sprintTimer=setInterval(()=>{
+    const left=60000-(Date.now()-sprintSess.t0);
+    const el=document.getElementById('sprintTimerEl');
+    if(!el||!sprintSess.active){clearInterval(sprintTimer);return;}
+    const s=Math.ceil(left/1000);
+    el.textContent=s;
+    el.parentElement?.classList.toggle('danger',s<=10);
+    if(left<=0){ clearInterval(sprintTimer); sprintSess.active=false; showSprintResults(); }
+  },200);
+}
+function showSprintCard() {
+  const area=document.getElementById('learnArea'); if(!area) return;
+  if(!sprintSess.active||sprintSess.idx>=sprintSess.cards.length){
+    if(sprintSess.active){clearInterval(sprintTimer);showSprintResults();}
+    return;
+  }
+  const card=sprintSess.cards[sprintSess.idx];
+  const left=Math.max(0,Math.ceil((60000-(Date.now()-sprintSess.t0))/1000));
+  area.innerHTML=`<div class="sprint-wrap">
+    <div style="display:flex;align-items:baseline;gap:12px;">
+      <div class="sprint-timer${left<=10?' danger':''}" id="sprintTimerEl">${left}</div>
+      <div style="font-size:14px;color:var(--tx-m);font-weight:600;">secondes</div>
+    </div>
+    <div class="sprint-score-row">
+      <div class="sprint-stat"><div class="sprint-stat-num" style="color:var(--gr)" id="sprintOk">${sprintSess.correct}</div><div class="sprint-stat-lbl">✓ Correct</div></div>
+      <div class="sprint-stat"><div class="sprint-stat-num">${sprintSess.cards.length-sprintSess.idx}</div><div class="sprint-stat-lbl">📋 Restantes</div></div>
+      <div class="sprint-stat"><div class="sprint-stat-num" style="color:var(--rd)" id="sprintNo">${sprintSess.wrong}</div><div class="sprint-stat-lbl">✗ Raté</div></div>
+    </div>
+    <div class="sprint-card" id="sprintCardEl">${esc(card.q)}</div>
+    <div style="font-size:12px;color:var(--tx-f);text-align:center;">Connaissez-vous la réponse ?</div>
+    <div class="sprint-actions">
+      <button class="btn btnd" onclick="sprintMark(false)">✗ Non</button>
+      <button class="btn btnG" onclick="sprintMark(true,event)">✓ Oui !</button>
+    </div>
+    <div class="kbd-hint"><span class="kbd">←</span> Non &nbsp; <span class="kbd">→</span> Oui</div>
+  </div>`;
+}
+function sprintMark(ok, ev=null) {
+  if(!sprintSess.active) return;
+  if(ok){ sprintSess.correct++; celebrateCorrect(ev); bumpDaily(1); }
+  else  { sprintSess.wrong++; }
+  sprintSess.idx++;
+  /* Mettre à jour les stats du deck */
+  const card=sprintSess.cards[sprintSess.idx-1];
+  const dk=S.decks.find(d=>d.id===sprintSess.deckId);
+  if(ok&&dk&&dk.cards[card.origIdx]) dk.cards[card.origIdx].correct=Math.min(3,(dk.cards[card.origIdx].correct||0)+1);
+  save();
+  if(sprintSess.idx>=sprintSess.cards.length){ clearInterval(sprintTimer); sprintSess.active=false; showSprintResults(); return; }
+  showSprintCard();
+}
+function showSprintResults() {
+  const area=document.getElementById('learnArea'); if(!area) return;
+  const pct=sprintSess.correct+sprintSess.wrong>0?Math.round(sprintSess.correct/(sprintSess.correct+sprintSess.wrong)*100):0;
+  if(pct===100&&sprintSess.correct>0) burstConfetti(window.innerWidth/2, window.innerHeight/2);
+  S.session=null; save(); recalc();
+  area.innerHTML=`<div class="cc">
+    <div class="ccico">${sprintSess.correct>=10?'⚡':sprintSess.correct>=5?'🏃':'🐢'}</div>
+    <div class="cctitle">Sprint terminé !</div>
+    <div class="ccsub">60 secondes · ${sprintSess.correct+sprintSess.wrong} carte${sprintSess.correct+sprintSess.wrong!==1?'s':''} traitée${sprintSess.correct+sprintSess.wrong!==1?'s':''}</div>
+    <div class="rg">
+      <div class="rstat"><div class="rnum" style="color:var(--gr)">${sprintSess.correct}</div><div style="font-size:12px;color:var(--tx-m)">✓ Corrects</div></div>
+      <div class="rstat"><div class="rnum" style="color:var(--rd)">${sprintSess.wrong}</div><div style="font-size:12px;color:var(--tx-m)">✗ Ratés</div></div>
+      <div class="rstat"><div class="rnum" style="color:var(--vi)">${pct}%</div><div style="font-size:12px;color:var(--tx-m)">Score</div></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+      <button class="btn btns" onclick="exitSession(false);renderLearnSetup()">← Retour</button>
+      <button class="btn btnp" onclick="startSprint(S.decks.find(d=>d.id==='${sprintSess.deckId}'))">Rejouer ⚡</button>
+    </div>
+  </div>`;
+  sprintSess={};
+  checkBadges();
 }
 
 /* ═══════ RACCOURCIS CLAVIER ═══════ */
@@ -746,6 +1140,11 @@ document.addEventListener('keydown', e=>{
   const tag=e.target.tagName;
   if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') return;
 
+  /* Sprint */
+  if(sess.mode==='sprint') {
+    if(e.key==='ArrowRight'){ e.preventDefault(); sprintMark(true); }
+    if(e.key==='ArrowLeft') { e.preventDefault(); sprintMark(false); }
+  }
   /* Carte Flash */
   if(sess.mode==='flashcard') {
     if(e.key===' '){e.preventDefault(); if(document.getElementById('fcEl')) flipFC();}
@@ -874,13 +1273,24 @@ function showSRSComplete() {
     <button class="btn btns" onclick="exitSRS();renderLearnSetup()">← Retour</button>
   </div>`;
   srsSess={};
+  checkBadges();
 }
 
-/* ═══════ TEST (EXAMEN BLANC) ═══════ */
+/* ═══════ ★ TEST AVANCÉ (Examen Blanc) — Questions MIXTES ═══════ */
 let examSess={}, examTimer=null;
+
+/* Types de question pour le mode mixte */
+const EXAM_TYPES = ['qcm','write','truefalse'];
+
+function getExamQuestionType(type, idx) {
+  if(type==='mixed')     return EXAM_TYPES[idx % EXAM_TYPES.length];
+  if(type==='truefalse') return 'truefalse';
+  return type; /* qcm | write */
+}
+
 function startExam(dk) {
   const durMin=parseInt(document.getElementById('examDuration')?.value||'0')||0;
-  const type=document.getElementById('examType')?.value||'qcm'; /* qcm | write */
+  const type=document.getElementById('examType')?.value||'mixed';
   const cards=shuf([...dk.cards]).map(c=>{
     const q = sessDirection==='aq' ? c.a : c.q;
     const a = sessDirection==='aq' ? c.q : c.a;
@@ -910,11 +1320,12 @@ function showExamCard() {
   const card=examSess.cards[examSess.idx];
   const prog=examSess.idx+1, tot=examSess.cards.length;
   const timerHtml=examSess.dur>0?`<div class="exam-timer" id="examTimerVal">--:--</div>`:'';
-  const isWrite=examSess.type==='write';
+  const qType = getExamQuestionType(examSess.type, examSess.idx);
 
   let ansHtml='';
-  if(isWrite){
+  if(qType==='write'){
     ansHtml=`<div class="wa" style="margin-top:0;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--vi);margin-bottom:6px;">✍️ Réponse libre</div>
       <input type="text" class="fi" id="examWInp" placeholder="Tapez votre réponse…" autocomplete="off" autocorrect="off" spellcheck="false" style="font-size:16px;text-align:center;padding:14px;" onkeydown="if(event.key==='Enter')examWriteSubmit()"/>
       <div id="examWFB" style="display:none;"></div>
       <div style="display:flex;gap:10px;justify-content:center;margin-top:4px;">
@@ -922,12 +1333,29 @@ function showExamCard() {
         <button class="btn btnp" onclick="examWriteSubmit()">Valider ✓</button>
       </div>
     </div>`;
+  } else if(qType==='truefalse') {
+    /* ★ NOUVEAU : Vrai/Faux — on invente un faux énoncé */
+    const isTrue = Math.random()>.5;
+    const dk=S.decks.find(d=>d.id===examSess.deckId);
+    const fakeAns = isTrue ? card.a : shuf(dk.cards.filter(c=>normalize(c.a)!==normalize(card.a)).map(c=>c.a))[0]||'–';
+    /* On stocke temporairement le bon état sur la session */
+    examSess._tfCorrect = isTrue;
+    examSess._displayedAns = fakeAns;
+    ansHtml=`<div style="background:var(--bg-card);border:1.5px solid var(--bd);border-radius:var(--rs);padding:20px;text-align:center;margin-bottom:12px;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--vi);margin-bottom:8px;">✔️ VRAI ou FAUX ?</div>
+      <div style="font-size:18px;font-weight:700;">La réponse est : <strong>${esc(fakeAns)}</strong></div>
+    </div>
+    <div class="tf-btns">
+      <button class="tf-btn true-btn" onclick="examTrueFalse(true,event)">✅ VRAI</button>
+      <button class="tf-btn false-btn" onclick="examTrueFalse(false,event)">❌ FAUX</button>
+    </div>`;
   } else {
     const dk=S.decks.find(d=>d.id===examSess.deckId);
     const others=shuf((dk?dk.cards:[]).filter(c=>normalize(c.a)!==normalize(card.a)).map(c=>c.a)).slice(0,3);
     while(others.length<3) others.push('–');
     const choices=shuf([card.a,...others]); const LETS=['A','B','C','D'];
-    ansHtml=`<div class="qcmc">${choices.map((ch,i)=>`
+    ansHtml=`<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--vi);margin-bottom:8px;">🔘 Choix multiple</div>
+    <div class="qcmc">${choices.map((ch,i)=>`
       <button class="qc" onclick="examPick(this,'${esc(ch)}','${esc(card.a)}',event)">
         <div class="qcl">${LETS[i]}</div><span>${esc(ch)}</span>
       </button>`).join('')}</div>`;
@@ -947,7 +1375,24 @@ function showExamCard() {
     </div>
     ${ansHtml}
   </div>`;
-  if(isWrite) setTimeout(()=>{ const i=document.getElementById('examWInp'); if(i)i.focus(); },60);
+  if(qType==='write') setTimeout(()=>{ const i=document.getElementById('examWInp'); if(i)i.focus(); },60);
+}
+
+/* ★ NOUVEAU : Vrai/Faux pour examen */
+function examTrueFalse(userSaysTrue, ev) {
+  const ok = userSaysTrue === examSess._tfCorrect;
+  const card=examSess.cards[examSess.idx];
+  /* Verrouiller les boutons */
+  document.querySelectorAll('.tf-btn').forEach(b=>{
+    b.classList.add('locked');
+    const isTrue=b.classList.contains('true-btn');
+    if(isTrue===examSess._tfCorrect) b.classList.add('correct');
+    else if(isTrue===userSaysTrue&&!ok) b.classList.add('wrong');
+  });
+  examSess.results.push({q:card.q,a:card.a,given:userSaysTrue?'Vrai':'Faux',ok});
+  bumpDaily(1); examSess.idx++;
+  if(ok) celebrateCorrect(ev||null);
+  setTimeout(()=>showExamCard(), ok?700:1500);
 }
 function examWriteSubmit(ev) {
   const inp=document.getElementById('examWInp'); if(!inp||!inp.value.trim()){if(inp)inp.focus();return;}
@@ -958,10 +1403,23 @@ function examWriteSubmit(ev) {
   fb.innerHTML=ok?`✓ Correct ! <strong>${esc(card.a)}</strong>`:`✗ Bonne réponse : <strong>${esc(card.a)}</strong>`;
   fb.style.display='block'; inp.disabled=true;
   examSess.results.push({q:card.q,a:card.a,given:inp.value,ok});
-  bumpDaily(1);
-  examSess.idx++;
+  /* ★ NOUVEAU : "J'avais raison" en mode examen aussi */
+  if(!ok) {
+    fb.insertAdjacentHTML('afterend', `<div style="text-align:center;"><button class="btn-iadroit" onclick="examIadroit()">💡 En fait, j'avais raison</button></div>`);
+  }
+  bumpDaily(1); examSess.idx++;
   if(ok) celebrateCorrect(ev||null); else shakeEl('examWInp');
   setTimeout(()=>showExamCard(), ok?800:1700);
+}
+/* ★ NOUVEAU : "J'avais raison" dans le test — corrige la dernière réponse */
+function examIadroit() {
+  /* Annuler la dernière erreur enregistrée */
+  const last = examSess.results[examSess.results.length-1];
+  if(last) last.ok=true;
+  celebrateCorrect(null);
+  /* Enlever le bouton */
+  document.querySelector('.btn-iadroit')?.parentElement?.remove();
+  toast('Corrigé ! ✓', '💡');
 }
 function examPick(btn, chosen, correct, ev) {
   const ok=chosen===correct;
@@ -971,8 +1429,7 @@ function examPick(btn, chosen, correct, ev) {
     else if(b===btn&&!ok) b.classList.add('wrong');
   });
   examSess.results.push({q:examSess.cards[examSess.idx].q,a:correct,given:chosen,ok});
-  bumpDaily(1);
-  examSess.idx++;
+  bumpDaily(1); examSess.idx++;
   if(ok) celebrateCorrect(ev||null);
   setTimeout(()=>showExamCard(), ok?650:1500);
 }
@@ -1013,7 +1470,37 @@ function showExamResults() {
     </div>
   </div>`;
   examSess={};
+  checkBadges();
 }
+
+/* ═══════ ★ OVERLAY MULTIJOUEUR ═══════ */
+function toggleOnlineOverlay() {
+  const ov = document.getElementById('onlineOverlay');
+  if(!ov) return;
+  if(ov.classList.contains('hidden')) {
+    ov.classList.remove('hidden');
+    /* Afficher la barre d'emojis */
+    const ej = document.getElementById('emjbar');
+    if(ej) ej.classList.add('show');
+  } else {
+    closeOnlineOverlay();
+  }
+}
+function closeOnlineOverlay() {
+  const ov = document.getElementById('onlineOverlay');
+  if(ov) ov.classList.add('hidden');
+  const ej = document.getElementById('emjbar');
+  if(ej) ej.classList.remove('show');
+}
+function closeOnlineOverlayOutside(event) {
+  if(event.target === document.getElementById('onlineOverlay')) closeOnlineOverlay();
+}
+/* Fermer overlay avec Escape */
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape') {
+    if(!document.getElementById('onlineOverlay')?.classList.contains('hidden')) closeOnlineOverlay();
+  }
+});
 
 /* ═══════ MULTIJOUEUR ═══════ */
 let mpP=null, mpC=null, mpCs=[], mpPs=[], mpH=false, mpN='';
@@ -1090,10 +1577,17 @@ function launchDuel() {
   duelState={active:true,deckCards:cards,idx:0,myScore:0,oppScore:0,locked:false,isHost:true};
   mpSend({type:'duel_start',cards:cards.map(c=>({q:c.q,a:c.a}))});
   showDuelArea(); sendDuelCard();
+  /* ★ NOUVEAU : badge duel */
+  S.stats.badges.first_duel_done=true; save(); checkBadges();
 }
-function recvDuelStart(data) { duelState={active:true,deckCards:data.cards,idx:0,myScore:0,oppScore:0,locked:false,isHost:false}; navigate('online'); showDuelArea(); }
+function recvDuelStart(data) {
+  duelState={active:true,deckCards:data.cards,idx:0,myScore:0,oppScore:0,locked:false,isHost:false};
+  /* Ouvrir l'overlay si pas déjà ouvert */
+  toggleOnlineOverlay(); // assurez-vous qu'il est visible
+  showDuelArea();
+  S.stats.badges.first_duel_done=true; save(); checkBadges();
+}
 function showDuelArea() {
-  if(!document.getElementById('duelArea')){ const div=document.createElement('div'); div.id='duelArea'; const room=document.getElementById('onRoom'); if(room) room.after(div); }
   const area=document.getElementById('duelArea'); if(!area) return;
   const oppNick=mpPs.length?mpPs[0].nick:'Adversaire';
   area.innerHTML=`<div style="margin-top:14px;">
@@ -1106,7 +1600,6 @@ function showDuelArea() {
     <div class="duel-card-area" id="duelCardArea"><div class="duel-status">En attente de la première question…</div></div>
     <div id="duelInputArea"></div>
   </div>`;
-  if(document.getElementById('onRoom')) document.getElementById('onRoom').style.display='block';
 }
 function sendDuelCard() { if(!duelState.active)return; if(duelState.idx>=duelState.deckCards.length){sendDuelEnd();return;} const card=duelState.deckCards[duelState.idx]; duelState.locked=false; mpSend({type:'duel_card',card:{q:card.q,a:card.a},idx:duelState.idx}); displayDuelCard(card); }
 function recvDuelCard(data) { duelState.idx=data.idx; duelState.locked=false; displayDuelCard(data.card); }
@@ -1150,23 +1643,13 @@ function showDuelEnd() {
       <div class="rstat"><div class="rnum" style="color:var(--vi)">${duelState.myScore}</div><div style="font-size:12px;color:var(--tx-m)">Tes points</div></div>
       <div class="rstat"><div class="rnum" style="color:var(--tx-m)">${duelState.oppScore}</div><div style="font-size:12px;color:var(--tx-m)">Adversaire</div></div>
     </div>
-    <button class="btn btnp" onclick="duelState.active=false;document.getElementById('duelArea')?.remove()">Fermer</button>
+    <button class="btn btnp" onclick="duelState.active=false;document.getElementById('duelArea').innerHTML=''">Fermer</button>
   </div>`;
   duelState.active=false;
 }
 
 /* ═══════ SYNCHRONISATION ═══════ */
 let syncP=null;
-
-/* Étape 1 : afficher le panneau d'envoi selon la commande */
-function openSyncSend() {
-  const area=document.getElementById('syncPanel'); if(area) area.style.display='block';
-  genSyncQR();
-}
-function openSyncReceive() {
-  const a=document.getElementById('syncReceivePanel'); if(a) a.style.display='block';
-}
-
 function genSyncQR() {
   const area=document.getElementById('syncSend'); if(!area) return;
   area.style.display='block';
@@ -1255,10 +1738,59 @@ function clearAll() {
 /* ═══════ INIT ═══════ */
 (()=>{
   const p=new URLSearchParams(location.search);
+
+  /* ★ NOUVEAU : Cloud-Link — import d'un paquet encodé en Base64 */
+  const importData = p.get('import');
+  if(importData) {
+    try {
+      const decoded = JSON.parse(decodeURIComponent(escape(atob(importData))));
+      if(decoded.name && Array.isArray(decoded.cards)) {
+        setTimeout(()=>{
+          if(confirm(`📦 Importer le paquet "${decoded.name}" (${decoded.cards.length} cartes) ?`)){
+            const existing = S.decks.find(d=>d.name===decoded.name);
+            if(existing){
+              /* Fusionner */
+              let added=0;
+              decoded.cards.forEach(c=>{if(!existing.cards.find(x=>x.q===c.q)){existing.cards.push({...c,correct:0,seen:0,lastModified:Date.now()});added++;}});
+              save(); renderHome(); renderDeckMgr(); renderLearnSetup(); refreshImports();
+              toast(`${added} carte(s) ajoutée(s) au paquet existant 🎉`);
+            } else {
+              S.decks.push({id:'d'+Date.now(),name:decoded.name,icon:decoded.icon||'📚',tag:decoded.tag||'',color:BGCOLS[S.decks.length%BGCOLS.length],cards:decoded.cards.map(c=>({...c,correct:0,seen:0,lastModified:Date.now()})),created:Date.now()});
+              save(); renderHome(); renderDeckMgr(); renderLearnSetup(); refreshImports();
+              toast(`Paquet "${decoded.name}" importé 🎉`);
+            }
+            checkBadges();
+            /* Nettoyer l'URL */
+            history.replaceState({},document.title,location.pathname);
+          }
+        }, 600);
+      }
+    } catch(e){ console.warn('Lien de partage invalide'); }
+  }
+
+  /* Sync via QR */
   const sid=p.get('sid');
   if(sid){ navigate('infos'); const el=document.getElementById('syncRcvId'); if(el)el.value=sid; setTimeout(syncReceive,1500); }
+
+  /* Reprendre session */
   if(p.get('action')==='resume'&&S.session) setTimeout(resumeSession,500);
+
+  /* Mode SRS direct */
   if(p.get('mode')==='srs') setTimeout(()=>{ navigate('apprendre'); const el=document.querySelector('[data-mode="srs"]'); if(el) pickMode(el,'srs'); },400);
+
+  /* ★ NOUVEAU : Auto-join via ?join=CODE */
+  const joinId = p.get('join');
+  if(joinId) {
+    setTimeout(()=>{
+      toggleOnlineOverlay();
+      const jf=document.getElementById('joinForm');
+      const jc=document.getElementById('joinCode');
+      if(jf) jf.style.display='block';
+      if(jc) jc.value=joinId.toUpperCase();
+      toast('Connexion automatique à la salle…','🌐');
+      setTimeout(mpJoin, 800);
+    }, 800);
+  }
 })();
 
 renderHome();

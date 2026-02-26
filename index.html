@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Cards – Révision Intelligente</title>
+  <meta name="description" content="Révisez facilement avec des cartes, des quiz, des duels et bien plus encore."/>
+  <meta name="theme-color" content="#7C6FCD"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+  <meta name="apple-mobile-web-app-title" content="Cards"/>
+  <link rel="manifest" href="manifest.json"/>
+  <!-- Polices & bibliothèques -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap"/>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+
+<!-- ═══════════ BANNIÈRE MISE À JOUR ═══════════ -->
+<div id="updateBanner">
+  <span>🎉 Une nouvelle version de Cards est disponible !</span>
+  <button class="ub-btn" onclick="applyUpdate()">Mettre à jour</button>
+  <button class="ub-btn" onclick="this.parentElement.classList.remove('show')" style="background:rgba(255,255,255,.1)">Plus tard</button>
+</div>
+
+<!-- ═══════════ STRUCTURE PRINCIPALE ═══════════ -->
+<div class="app">
+
+  <!-- ─── SIDEBAR (Desktop) ─── -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="lmark">🃏</div>
+      <div class="ltxt">Cards</div>
+    </div>
+    <ul class="nav-list">
+      <li><button class="nv active" data-pg="accueil"><span class="ni">🏠</span>Accueil</button></li>
+      <li><button class="nv" data-pg="apprendre"><span class="ni">🎓</span>Apprendre</button></li>
+      <li><button class="nv" data-pg="cards"><span class="ni">🃏</span>Mes Cartes</button></li>
+      <li><button class="nv" data-pg="online"><span class="ni">🌐</span>Multijoueur</button></li>
+      <li><button class="nv" data-pg="infos"><span class="ni">⚙️</span>Paramètres</button></li>
+    </ul>
+    <div class="sfoot">
+      <button id="installBtn" onclick="installPWA()"><span>📲</span>Installer l'app</button>
+      <button onclick="toggleTheme()"><span id="tico">🌙</span><span id="tlbl">Mode sombre</span></button>
+    </div>
+  </aside>
+
+  <!-- ─── CONTENU PRINCIPAL ─── -->
+  <main class="main">
+
+    <!-- ════════ PAGE : ACCUEIL ════════ -->
+    <section id="pg-accueil" class="page active">
+
+      <!-- Titre + date -->
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:22px;">
+        <div>
+          <div class="pgtitle">Bonjour 👋</div>
+          <div class="pgsub" id="todayDate"></div>
+        </div>
+        <button class="btn btnp" onclick="navigate('apprendre')" style="flex-shrink:0;">Réviser maintenant →</button>
+      </div>
+
+      <!-- Streak -->
+      <div class="strk">
+        <div>
+          <div class="snum" id="streakNum">0</div>
+          <div class="slbl">jours de suite 🔥</div>
+        </div>
+        <div class="wds" id="weekDots"></div>
+      </div>
+
+      <!-- Statistiques -->
+      <div class="strow">
+        <div class="stbox"><div class="stnum" id="stTotal">0</div><div class="stlbl">Cartes au total</div></div>
+        <div class="stbox"><div class="stnum" id="stLearned">0</div><div class="stlbl">Cartes maîtrisées</div></div>
+        <div class="stbox"><div class="stnum" id="stSess">0</div><div class="stlbl">Sessions</div></div>
+      </div>
+
+      <!-- Reprendre session -->
+      <div id="resumeArea" style="display:none;" class="rbanner">
+        <span style="font-size:22px;">⏸</span>
+        <div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:14px;margin-bottom:2px;">Session en cours</div><div style="font-size:12px;color:var(--tx-m)" id="resumeInfo"></div></div>
+        <button class="btn btnp bsm" onclick="resumeSession()">Reprendre →</button>
+      </div>
+
+      <!-- Graphique d'activité -->
+      <div class="chart-wrap">
+        <h3>📊 Activité des 30 derniers jours</h3>
+        <canvas id="activityChart"></canvas>
+      </div>
+
+      <!-- Mes paquets (aperçu) -->
+      <div class="shd" style="margin-bottom:12px;">Mes paquets</div>
+      <div id="homeDecks" style="display:flex;flex-direction:column;gap:9px;"></div>
+      <div id="homeEmpty" class="empty" style="display:none;"><div class="ei">📦</div><p>Aucun paquet pour l'instant.<br>Créez vos premières cartes dans <strong>Mes Cartes</strong> !</p></div>
+
+    </section>
+
+    <!-- ════════ PAGE : APPRENDRE ════════ -->
+    <section id="pg-apprendre" class="page">
+
+      <!-- Setup -->
+      <div id="learnSetup">
+        <div class="pgtitle" style="margin-bottom:4px;">Apprendre <em>📖</em></div>
+        <div class="pgsub" style="margin-bottom:24px;">Choisissez un mode et un paquet, puis c'est parti !</div>
+
+        <!-- 1. Choisir un mode -->
+        <div class="shd">1. Mode d'apprentissage</div>
+        <div class="mgrid">
+
+          <div class="mc mode-smart sel" data-mode="srs" onclick="pickMode(this,'srs')">
+            <div class="mbdg">Intelligent</div>
+            <div class="mico">🧠</div>
+            <div class="mname">Révision Intelligente</div>
+            <div class="mdesc">L'application choisit le meilleur moment pour vous faire réviser.</div>
+          </div>
+
+          <div class="mc" data-mode="flashcard" onclick="pickMode(this,'flashcard')">
+            <div class="mico">🃏</div>
+            <div class="mname">Cartes</div>
+            <div class="mdesc">Feuilletez vos cartes comme de vraies fiches en carton.</div>
+          </div>
+
+          <div class="mc" data-mode="write" onclick="pickMode(this,'write')">
+            <div class="mico">✍️</div>
+            <div class="mname">Écriture</div>
+            <div class="mdesc">Tapez la réponse au clavier pour mieux mémoriser.</div>
+          </div>
+
+          <div class="mc" data-mode="qcm" onclick="pickMode(this,'qcm')">
+            <div class="mico">🔘</div>
+            <div class="mname">Quiz</div>
+            <div class="mdesc">Choisissez la bonne réponse parmi 4 propositions.</div>
+          </div>
+
+          <div class="mc" data-mode="match" onclick="pickMode(this,'match')">
+            <div class="mico">🔗</div>
+            <div class="mname">Association</div>
+            <div class="mdesc">Reliez chaque question à sa réponse le plus vite possible.</div>
+          </div>
+
+          <div class="mc" data-mode="dictee" onclick="pickMode(this,'dictee')">
+            <div class="mico">🎧</div>
+            <div class="mname">Dictée</div>
+            <div class="mdesc">Écoutez la réponse à voix haute et écrivez ce que vous entendez.</div>
+          </div>
+
+          <div class="mc mode-exam" data-mode="exam" onclick="pickMode(this,'exam')">
+            <div class="mbdg">Test</div>
+            <div class="mico">📝</div>
+            <div class="mname">Test</div>
+            <div class="mdesc">Évaluez votre niveau avec un score final.</div>
+          </div>
+
+        </div>
+
+        <!-- 2. Choisir un paquet -->
+        <div class="shd" style="margin-top:8px;">2. Paquet à réviser</div>
+        <div class="dpgrid" id="deckPickGrid" style="margin-bottom:20px;"></div>
+
+        <!-- 3. Options -->
+        <div class="session-opts">
+          <div class="shd" style="margin-bottom:10px;">⚙️ Options</div>
+
+          <!-- Direction (toujours visible) -->
+          <div class="opt-row">
+            <div>
+              <div style="font-weight:700;font-size:14px;">Direction</div>
+              <div style="font-size:12px;color:var(--tx-m);">Choisissez le sens de révision</div>
+            </div>
+            <div class="dir-btns">
+              <button class="dir-btn active" onclick="setDirection('qa',this)">❓ → ✅ Question → Réponse</button>
+              <button class="dir-btn" onclick="setDirection('aq',this)">✅ → ❓ Réponse → Question</button>
+            </div>
+          </div>
+
+          <!-- Mélange (masqué pour l'examen) -->
+          <div class="opt-row" id="optRow_shuffle">
+            <label class="tgl">
+              <input type="checkbox" id="optShuffle" checked/>
+              <div class="ttr"><div class="tth"></div></div>
+              <div class="tlbl">Mélanger les cartes</div>
+            </label>
+          </div>
+
+          <!-- Correction flexible -->
+          <div class="opt-row">
+            <label class="tgl">
+              <input type="checkbox" id="optFlex" checked/>
+              <div class="ttr"><div class="tth"></div></div>
+              <div class="tlbl">Correction flexible <span style="font-size:12px;color:var(--tx-m);">(une faute de frappe tolérée)</span></div>
+            </label>
+          </div>
+
+          <!-- Mode strict -->
+          <div class="opt-row">
+            <label class="tgl">
+              <input type="checkbox" id="optStrict"/>
+              <div class="ttr"><div class="tth"></div></div>
+              <div class="tlbl">Strict (majuscules et accents comptent)</div>
+            </label>
+          </div>
+
+          <!-- Options du Test -->
+          <div id="examOptions" style="display:none;">
+            <div class="opt-row">
+              <div>
+                <div style="font-weight:700;font-size:14px;">Format du test</div>
+                <div style="font-size:12px;color:var(--tx-m);">QCM ou réponse tapée au clavier</div>
+              </div>
+              <select class="fi fsel" id="examType" style="width:auto;max-width:200px;">
+                <option value="qcm">🔘 Choix multiples (QCM)</option>
+                <option value="write">✍️ Écriture libre</option>
+              </select>
+            </div>
+            <div class="opt-row">
+              <div>
+                <div style="font-weight:700;font-size:14px;">Durée</div>
+                <div style="font-size:12px;color:var(--tx-m);">Limitez le temps si vous le souhaitez</div>
+              </div>
+              <select class="fi fsel" id="examDuration" style="width:auto;max-width:200px;">
+                <option value="0">Sans limite</option>
+                <option value="5">5 minutes</option>
+                <option value="10">10 minutes</option>
+                <option value="20">20 minutes</option>
+                <option value="30">30 minutes</option>
+              </select>
+            </div>
+          </div>
+
+        </div>
+
+        <button class="btn btnp blg" id="startBtn" onclick="startSession()" disabled style="width:100%;">
+          Commencer la révision ▶
+        </button>
+      </div>
+
+      <!-- Zone de session (masquée par défaut) -->
+      <div id="learnArea" style="display:none;"></div>
+
+    </section>
+
+    <!-- ════════ PAGE : MES CARTES ════════ -->
+    <section id="pg-cards" class="page">
+      <div class="pgtitle" style="margin-bottom:4px;">Mes Cartes <em>🃏</em></div>
+      <div class="pgsub" style="margin-bottom:22px;">Créez et gérez vos paquets de révision.</div>
+
+      <!-- Tabs -->
+      <div id="cardTabs" class="tabs">
+        <button class="tbb active" onclick="switchCTab('decks',this)">Mes paquets</button>
+        <button class="tbb" onclick="switchCTab('bulk',this)">Import rapide</button>
+        <button class="tbb" onclick="switchCTab('url',this)">Depuis une URL</button>
+      </div>
+
+      <!-- Tab Decks -->
+      <div id="ct-decks">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:13px;">
+          <button class="btn btnp" onclick="openDeckModal()">+ Nouveau paquet</button>
+        </div>
+        <div id="deckMgr" style="display:flex;flex-direction:column;gap:9px;"></div>
+      </div>
+
+      <!-- Tab Import Rapide -->
+      <div id="ct-bulk" style="display:none;">
+        <div class="card" style="margin-bottom:16px;">
+          <div class="shd">✂️ Coller une liste</div>
+          <p class="imph">Collez votre liste de cartes ici. Séparez la question et la réponse par <code class="ic">|</code> ou <code class="ic">;</code> ou une tabulation.</p>
+          <p class="imph">Exemple : <code class="ic">Bonjour | Hello</code> ou <code class="ic">Chat | Cat</code></p>
+          <div class="fg">
+            <label class="fl">Ajouter dans</label>
+            <select class="fi fsel" id="bulkDeck"></select>
+          </div>
+          <div class="fg">
+            <label class="fl">Votre liste</label>
+            <textarea class="fi fta impz" id="bulkTxt" placeholder="Bonjour | Hello&#10;Chat | Cat&#10;Maison | House&#10;Merci | Thank you" style="min-height:140px;"></textarea>
+            <span id="bulkCnt" style="font-size:12px;color:var(--vi);font-weight:600;"></span>
+          </div>
+          <button class="btn btnp" onclick="bulkImport()">Importer ces cartes ✓</button>
+        </div>
+      </div>
+
+      <!-- Tab URL -->
+      <div id="ct-url" style="display:none;">
+        <div class="card" style="margin-bottom:16px;">
+          <div class="shd">🌐 Importer depuis une adresse web</div>
+          <p class="imph">Entrez l'adresse d'un fichier texte contenant vos cartes (format <code class="ic">Question | Réponse</code>).</p>
+          <div class="fg">
+            <label class="fl">Ajouter dans</label>
+            <select class="fi fsel" id="urlDeck"></select>
+          </div>
+          <div class="fg">
+            <label class="fl">Adresse web (URL)</label>
+            <input type="url" class="fi" id="urlInp" placeholder="https://exemple.com/cartes.txt"/>
+          </div>
+          <button class="btn btnp" onclick="urlImport()">Importer ↓</button>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ════════ PAGE : MULTIJOUEUR ════════ -->
+    <section id="pg-online" class="page">
+      <div class="pgtitle" style="margin-bottom:4px;">Multijoueur <em>🌐</em></div>
+      <div class="pgsub" style="margin-bottom:22px;">Jouez et synchronisez avec vos amis — sans compte, sans serveur.</div>
+
+      <!-- Connexion -->
+      <div id="onCon" class="card" style="margin-bottom:16px;">
+        <div class="shd">👤 Votre surnom</div>
+        <div class="fg" style="margin-bottom:16px;">
+          <input type="text" class="fi" id="mpNick" placeholder="Entrez votre prénom ou surnom…" maxlength="24" style="font-size:16px;"/>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btnp" style="flex:1;min-width:140px;" onclick="mpCreate()">
+            🎯 Créer une salle
+          </button>
+          <button class="btn btns" style="flex:1;min-width:140px;" onclick="mpShowJoin()">
+            🚪 Rejoindre
+          </button>
+        </div>
+        <div id="joinForm" style="display:none;margin-top:14px;">
+          <div class="fg">
+            <label class="fl">Code de la salle</label>
+            <input type="text" class="fi" id="joinCode" placeholder="Ex : CARDS-AB12-5678" style="text-transform:uppercase;letter-spacing:.1em;font-family:'Courier New',monospace;font-size:16px;" onkeydown="if(event.key==='Enter')mpJoin()"/>
+          </div>
+          <button class="btn btnp" onclick="mpJoin()">Rejoindre la salle →</button>
+        </div>
+      </div>
+
+      <!-- Salle active -->
+      <div id="onRoom" style="display:none;">
+        <div class="onst">
+          <div class="dot on" id="odot"></div>
+          <span id="ostxt">Connecté</span>
+          <button class="btn btnd bsm" style="margin-left:auto;" onclick="mpDisconnect()">Quitter</button>
+        </div>
+        <div class="card" style="margin-bottom:14px;">
+          <div class="rcode">
+            <div class="rclbl">Code de votre salle — partagez-le à vos amis !</div>
+            <div class="rcval" id="myRoomCode">—</div>
+          </div>
+          <div class="shd" style="margin-bottom:10px;">Joueurs connectés</div>
+          <div id="playerList" style="display:flex;flex-direction:column;gap:7px;"></div>
+          <button class="btn btnp" id="duelStartBtn" onclick="openDuelSetup()" style="display:none;margin-top:14px;width:100%;">⚔️ Lancer un duel !</button>
+        </div>
+      </div>
+
+      <!-- Emojis flottants -->
+      <div id="emjbar">
+        <button class="eb" onclick="sendEmoji('👏')">👏</button>
+        <button class="eb" onclick="sendEmoji('🎉')">🎉</button>
+        <button class="eb" onclick="sendEmoji('🔥')">🔥</button>
+        <button class="eb" onclick="sendEmoji('😂')">😂</button>
+        <button class="eb" onclick="sendEmoji('😎')">😎</button>
+        <button class="eb" onclick="sendEmoji('💪')">💪</button>
+      </div>
+
+    </section>
+
+    <!-- ════════ PAGE : PARAMÈTRES ════════ -->
+    <section id="pg-infos" class="page">
+      <div class="pgtitle" style="margin-bottom:4px;">Paramètres <em>⚙️</em></div>
+      <div class="pgsub" style="margin-bottom:22px;">Personnalisez votre expérience Cards.</div>
+
+      <!-- Synchronisation -->
+      <div class="ib" style="margin-bottom:16px;">
+        <div class="ihd">
+          <div class="ihico" style="background:var(--vip);">🔄</div>
+          <div><div class="ihtitle">Synchroniser avec un autre appareil</div><div class="ihsub">Transférez vos cartes sans câble, sans compte</div></div>
+        </div>
+        <div class="ibody">
+          <p style="font-size:13.5px;color:var(--tx-m);margin-bottom:16px;">Pour envoyer vos cartes sur un autre téléphone ou ordinateur, utilisez les deux boutons ci-dessous :</p>
+
+          <!-- Deux gros boutons simples -->
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
+            <div class="sync-bigbtn" onclick="genSyncQR()">
+              <div class="sbi">📤</div>
+              <div class="sbt">Envoyer mes cartes</div>
+              <div class="sbd">Sur l'appareil qui envoie</div>
+            </div>
+            <div class="sync-bigbtn" onclick="document.getElementById('syncReceivePanel').style.display='block'">
+              <div class="sbi">📥</div>
+              <div class="sbt">Recevoir des cartes</div>
+              <div class="sbd">Sur l'appareil qui reçoit</div>
+            </div>
+          </div>
+
+          <!-- Panneau envoi (QR) -->
+          <div id="syncSend" style="display:none;background:var(--bg-sub);border-radius:var(--rs);padding:18px;margin-bottom:14px;">
+            <div class="shd" style="margin-bottom:12px;">📤 Votre code de transfert</div>
+            <div class="qra">
+              <div id="qrcode"></div>
+              <div style="text-align:center;">
+                <div style="font-size:12.5px;color:var(--tx-m);margin-bottom:6px;">Scannez le QR code <strong>ou</strong> entrez ce code :</div>
+                <div class="qridb" id="syncId">—</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Panneau réception -->
+          <div id="syncReceivePanel" style="display:none;background:var(--bg-sub);border-radius:var(--rs);padding:18px;">
+            <div class="shd" style="margin-bottom:12px;">📥 Entrez le code de l'autre appareil</div>
+            <div class="fg">
+              <input type="text" class="fi" id="syncRcvId" placeholder="Ex : SYNC-A3B7C" style="text-transform:uppercase;letter-spacing:.12em;font-family:'Courier New',monospace;font-size:18px;text-align:center;" onkeydown="if(event.key==='Enter')syncReceive()"/>
+            </div>
+            <button class="btn btnp" onclick="syncReceive()" style="width:100%;">Récupérer les cartes ↓</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Apparence -->
+      <div class="ib" style="margin-bottom:16px;">
+        <div class="ihd">
+          <div class="ihico" style="background:var(--orp);">🎨</div>
+          <div><div class="ihtitle">Apparence</div><div class="ihsub">Thème clair ou sombre</div></div>
+        </div>
+        <div class="ibody">
+          <label class="tgl">
+            <input type="checkbox" id="darkChk" onchange="S.theme=this.checked?'dark':'light';LS.s('cards_theme',S.theme);applyTheme(S.theme)"/>
+            <div class="ttr"><div class="tth"></div></div>
+            <div class="tlbl">Mode sombre</div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Installer l'app -->
+      <div class="ib" style="margin-bottom:16px;">
+        <div class="ihd">
+          <div class="ihico" style="background:var(--grp);">📲</div>
+          <div><div class="ihtitle">Installer Cards sur votre écran</div><div class="ihsub">Accès rapide, fonctionne même sans internet</div></div>
+        </div>
+        <div class="ibody">
+          <p style="font-size:13.5px;color:var(--tx-m);margin-bottom:12px;">Installez Cards comme une vraie application sur votre téléphone ou votre ordinateur !</p>
+          <button id="installBtn2" class="btn btnp" onclick="installPWA()" style="width:100%;">📲 Installer l'application</button>
+        </div>
+      </div>
+
+      <!-- Données -->
+      <div class="ib">
+        <div class="ihd">
+          <div class="ihico" style="background:var(--rdp);">🗑️</div>
+          <div><div class="ihtitle">Réinitialiser les données</div><div class="ihsub">Suppression définitive de toutes vos cartes</div></div>
+        </div>
+        <div class="ibody">
+          <p style="font-size:13.5px;color:var(--tx-m);margin-bottom:12px;">Un fichier de sauvegarde sera téléchargé automatiquement avant la suppression.</p>
+          <button class="btn btnd" onclick="clearAll()">🗑️ Tout effacer</button>
+        </div>
+      </div>
+
+    </section>
+
+  </main><!-- /main -->
+</div><!-- /app -->
+
+<!-- ─── NAVIGATION MOBILE (bottom) ─── -->
+<nav class="bnav">
+  <div class="bnav-in">
+    <button class="bnb active" data-pg="accueil"><span class="ni">🏠</span>Accueil</button>
+    <button class="bnb" data-pg="apprendre"><span class="ni">🎓</span>Apprendre</button>
+    <button class="bnb" data-pg="cards"><span class="ni">🃏</span>Cartes</button>
+    <button class="bnb" data-pg="online"><span class="ni">🌐</span>En ligne</button>
+    <button class="bnb" data-pg="infos"><span class="ni">⚙️</span>Réglages</button>
+  </div>
+</nav>
+
+<!-- ─── MODAL ─── -->
+<div id="overlay" class="overlay hidden" onclick="closeMO(event)">
+  <div id="mbox" class="modal"></div>
+</div>
+
+<!-- ─── TOASTS ─── -->
+<div id="toasts"></div>
+
+<!-- ─── SCRIPTS ─── -->
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="app.js"></script>
+
+<!-- Init du toggle sombre depuis l'état sauvegardé -->
+<script>
+  (function(){
+    const dark = document.documentElement.getAttribute('data-theme')==='dark';
+    const chk  = document.getElementById('darkChk');
+    if(chk) chk.checked = dark;
+  })();
+</script>
+
+</body>
+</html>

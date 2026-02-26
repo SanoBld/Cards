@@ -1,0 +1,38 @@
+{
+  "name": "Cards – Révision Intelligente",
+  "short_name": "Cards",
+  "description": "Révisez facilement avec des cartes, des quiz et des duels entre amis.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FAFAF9",
+  "theme_color": "#7C6FCD",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='110' fill='%237C6FCD'/><text y='380' x='55' font-size='360' font-family='serif'>🃏</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%237C6FCD'/><text y='148' x='18' font-size='140' font-family='serif'>🃏</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["education", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Reprendre ma révision",
+      "short_name": "Reprendre",
+      "url": "./index.html?action=resume"
+    },
+    {
+      "name": "Révision Intelligente",
+      "short_name": "Intelligent",
+      "url": "./index.html?mode=srs"
+    }
+  ]
+}
